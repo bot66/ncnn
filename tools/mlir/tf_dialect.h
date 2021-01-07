@@ -16,9 +16,10 @@
 #define TF_DIALECT_H
 
 #include <mlir/Dialect/Traits.h>
+#include <mlir/IR/BuiltinOps.h>
 #include <mlir/IR/Dialect.h>
-#include <mlir/IR/Function.h>
 #include <mlir/IR/OpImplementation.h>
+#include <mlir/Interfaces/ControlFlowInterfaces.h>
 #include <mlir/Interfaces/DerivedAttributeOpInterface.h>
 #include <mlir/Interfaces/InferTypeOpInterface.h>
 #include <mlir/Interfaces/LoopLikeInterface.h>
@@ -61,9 +62,9 @@ public:
 
 } // namespace TF
 
+} // namespace mlir
+
 #define GET_OP_CLASSES
 #include "tf_all_ops.h.inc"
-
-} // namespace mlir
 
 #endif // TF_DIALECT_H

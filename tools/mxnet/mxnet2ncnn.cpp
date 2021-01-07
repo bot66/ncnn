@@ -176,7 +176,7 @@ std::vector<int> MXNetNode::attr_ai(const char* key) const
     int i = 0;
     int c = 0;
     int nconsumed = 0;
-    int nscan = sscanf(it->second.c_str() + c, "%*[\[(,]%d%n", &i, &nconsumed);
+    int nscan = sscanf(it->second.c_str() + c, "%*[\\[(,]%d%n", &i, &nconsumed);
     if (nscan != 1)
     {
         // (None
@@ -259,12 +259,12 @@ bool MXNetNode::has_weight(int i) const
     if (i < 0 || i >= (int)weights.size())
         return false;
 
-    const std::string& name = (*nodes)[weights[i]].name;
+    const std::string& node_name = (*nodes)[weights[i]].name;
 
-    for (int i = 0; i < (int)(*params).size(); i++)
+    for (int j = 0; j < (int)(*params).size(); j++)
     {
-        const MXNetParam& p = (*params)[i];
-        if (p.name == name)
+        const MXNetParam& p = (*params)[j];
+        if (p.name == node_name)
             return true;
     }
 
@@ -276,12 +276,12 @@ std::vector<float> MXNetNode::weight(int i, int init_len) const
     if (i < 0 || i >= (int)weights.size())
         return std::vector<float>();
 
-    const std::string& name = (*nodes)[weights[i]].name;
+    const std::string& node_name = (*nodes)[weights[i]].name;
 
-    for (int i = 0; i < (int)(*params).size(); i++)
+    for (int j = 0; j < (int)(*params).size(); j++)
     {
-        const MXNetParam& p = (*params)[i];
-        if (p.name != name)
+        const MXNetParam& p = (*params)[j];
+        if (p.name != node_name)
             continue;
 
         if (!p.data.empty())
@@ -380,8 +380,8 @@ static bool read_mxnet_json(const char* jsonpath, std::vector<MXNetNode>& nodes)
     bool in_inputs_block = false;
     while (!feof(fp))
     {
-        char* s = fgets(line, 1024, fp);
-        if (!s)
+        char* t = fgets(line, 1024, fp);
+        if (!t)
             break;
 
         if (in_inputs_block)
@@ -997,7 +997,7 @@ int main(int argc, char** argv)
     // global definition line
     // [layer count] [blob count]
     std::set<std::string> blob_names;
-    for (int i = 0; i < node_count; i++)
+    for (size_t i = 0; i < node_count; i++)
     {
         MXNetNode& n = nodes[i];
 
@@ -1142,7 +1142,7 @@ int main(int argc, char** argv)
 
     int internal_split = 0;
 
-    for (int i = 0; i < node_count; i++)
+    for (size_t i = 0; i < node_count; i++)
     {
         const MXNetNode& n = nodes[i];
 
@@ -2301,11 +2301,11 @@ int main(int argc, char** argv)
                 // if axis set, reduce according to axis
                 fprintf(pp, " 1=%d", 0);
                 fprintf(pp, " -23303=%zd", axis.size());
-                for (int i = 0; i < axis.size(); i++)
+                for (size_t j = 0; j < axis.size(); j++)
                 {
-                    if (axis[i] == 0 || axis[i] > 3 || axis[i] < -3)
+                    if (axis[j] == 0 || axis[j] > 3 || axis[j] < -3)
                         fprintf(stderr, "Unsupported reduction axis !\n");
-                    fprintf(pp, ",%d", axis[i]);
+                    fprintf(pp, ",%d", axis[j]);
                 }
             }
             fprintf(pp, " 4=%d", keepdims);
@@ -2504,21 +2504,21 @@ int main(int argc, char** argv)
                 step.erase(step.begin());
 
             // assert step == 1
-            for (int i = 0; i < (int)step.size(); i++)
+            for (size_t j = 0; j < step.size(); j++)
             {
-                if (step[i] != 1)
+                if (step[j] != 1)
                     fprintf(stderr, "Unsupported slice step !\n");
             }
 
             fprintf(pp, " -23309=%d", (int)begin.size());
-            for (int i = 0; i < (int)begin.size(); i++)
+            for (size_t j = 0; j < begin.size(); j++)
             {
-                fprintf(pp, ",%d", begin[i]);
+                fprintf(pp, ",%d", begin[j]);
             }
             fprintf(pp, " -23310=%d", (int)end.size());
-            for (int i = 0; i < (int)end.size(); i++)
+            for (size_t j = 0; j < end.size(); j++)
             {
-                fprintf(pp, ",%d", end[i]);
+                fprintf(pp, ",%d", end[j]);
             }
         }
         else if (n.op == "slice_axis")
@@ -2592,9 +2592,9 @@ int main(int argc, char** argv)
             else
             {
                 fprintf(pp, " -23303=%zd", axis.size());
-                for (int i = 0; i < (int)axis.size(); i++)
+                for (size_t j = 0; j < axis.size(); j++)
                 {
-                    fprintf(pp, ",%d", axis[i]);
+                    fprintf(pp, ",%d", axis[j]);
                 }
             }
         }
@@ -2694,11 +2694,11 @@ int main(int argc, char** argv)
         else
         {
             // TODO op specific params
-            std::map<std::string, std::string>::const_iterator it = n.attrs.begin();
-            for (; it != n.attrs.end(); it++)
+            std::map<std::string, std::string>::const_iterator attr_it = n.attrs.begin();
+            for (; attr_it != n.attrs.end(); attr_it++)
             {
-                fprintf(stderr, "# %s=%s\n", it->first.c_str(), it->second.c_str());
-                //                 fprintf(pp, " %s=%s", it->first.c_str(), it->second.c_str());
+                fprintf(stderr, "# %s=%s\n", attr_it->first.c_str(), attr_it->second.c_str());
+                //                 fprintf(pp, " %s=%s", attr_it->first.c_str(), attr_it->second.c_str());
             }
         }
 

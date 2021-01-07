@@ -15,12 +15,14 @@
 #ifndef TESTUTIL_H
 #define TESTUTIL_H
 
+#include "cpu.h"
 #include "layer.h"
 #include "mat.h"
 #include "prng.h"
 
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #if NCNN_VULKAN
 #include "command.h"
@@ -68,12 +70,36 @@ static ncnn::Mat RandomMat(int w, int h, int c)
     return m;
 }
 
+static ncnn::Mat scales_mat(const ncnn::Mat& mat, int m, int k, int ldx)
+{
+    ncnn::Mat weight_scales(m);
+    for (int i = 0; i < m; ++i)
+    {
+        float min = mat[0], _max = mat[0];
+        const float* ptr = (const float*)(mat.data) + i * ldx;
+        for (int j = 0; j < k; ++j)
+        {
+            if (min > ptr[j])
+            {
+                min = ptr[j];
+            }
+            if (_max < ptr[j])
+            {
+                _max = ptr[j];
+            }
+        }
+        const float abs_min = abs(min), abs_max = abs(_max);
+        weight_scales[i] = 127.f / (abs_min > abs_max ? abs_min : abs_max);
+    }
+    return weight_scales;
+}
+
 static bool NearlyEqual(float a, float b, float epsilon)
 {
     if (a == b)
         return true;
 
-    float diff = fabs(a - b);
+    float diff = (float)fabs(a - b);
     if (diff <= epsilon)
         return true;
 
@@ -295,7 +321,7 @@ int test_layer_cpu(int typeindex, const ncnn::ParamDict& pd, const std::vector<n
     op->create_pipeline(opt);
 
     std::vector<ncnn::Mat> a4(a.size());
-    if (opt.use_packing_layout)
+    if (opt.use_packing_layout && op->support_packing)
     {
         for (size_t i = 0; i < a.size(); i++)
         {
@@ -309,8 +335,10 @@ int test_layer_cpu(int typeindex, const ncnn::ParamDict& pd, const std::vector<n
             int dst_elempack = 1;
 
 #if NCNN_AVX2
-            if (elemcount % 8 == 0)
+            if (elemcount % 8 == 0 && ncnn::cpu_support_x86_avx2())
                 dst_elempack = 8;
+            else if (elemcount % 4 == 0)
+                dst_elempack = 4;
 #elif NCNN_ARM82
             if (elemcount % 8 == 0 && opt.use_fp16_arithmetic)
                 dst_elempack = 8;
@@ -329,7 +357,7 @@ int test_layer_cpu(int typeindex, const ncnn::ParamDict& pd, const std::vector<n
         a4 = a;
     }
 
-    if (opt.use_fp16_storage)
+    if (opt.use_fp16_storage && op->support_fp16_storage)
     {
         for (size_t i = 0; i < a4.size(); i++)
         {
@@ -338,7 +366,7 @@ int test_layer_cpu(int typeindex, const ncnn::ParamDict& pd, const std::vector<n
             a4[i] = a_fp16;
         }
     }
-    else if (opt.use_bf16_storage)
+    else if (opt.use_bf16_storage && op->support_bf16_storage)
     {
         for (size_t i = 0; i < a4.size(); i++)
         {
@@ -364,7 +392,7 @@ int test_layer_cpu(int typeindex, const ncnn::ParamDict& pd, const std::vector<n
         op->forward(a4, c, opt);
     }
 
-    if (opt.use_fp16_storage)
+    if (opt.use_fp16_storage && op->support_fp16_storage)
     {
         for (size_t i = 0; i < c.size(); i++)
         {
@@ -373,7 +401,7 @@ int test_layer_cpu(int typeindex, const ncnn::ParamDict& pd, const std::vector<n
             c[i] = c_fp32;
         }
     }
-    else if (opt.use_bf16_storage)
+    else if (opt.use_bf16_storage && op->support_bf16_storage)
     {
         for (size_t i = 0; i < c.size(); i++)
         {
@@ -460,9 +488,9 @@ int test_layer_gpu(int typeindex, const ncnn::ParamDict& pd, const std::vector<n
     opt.workspace_vkallocator = blob_vkallocator;
     opt.staging_vkallocator = staging_vkallocator;
 
-    if (!vkdev->info.support_fp16_packed) opt.use_fp16_packed = false;
-    if (!vkdev->info.support_fp16_storage) opt.use_fp16_storage = false;
-    if (!vkdev->info.support_fp16_arithmetic) opt.use_fp16_arithmetic = false;
+    if (!vkdev->info.support_fp16_packed()) opt.use_fp16_packed = false;
+    if (!vkdev->info.support_fp16_storage()) opt.use_fp16_storage = false;
+    if (!vkdev->info.support_fp16_arithmetic()) opt.use_fp16_arithmetic = false;
 
     // FIXME fp16a may produce large error
     opt.use_fp16_arithmetic = false;
@@ -713,7 +741,7 @@ int test_layer_cpu(int typeindex, const ncnn::ParamDict& pd, const std::vector<n
     op->create_pipeline(opt);
 
     ncnn::Mat a4;
-    if (opt.use_packing_layout)
+    if (opt.use_packing_layout && op->support_packing)
     {
         // resolve dst_elempack
         int dims = a.dims;
@@ -725,8 +753,10 @@ int test_layer_cpu(int typeindex, const ncnn::ParamDict& pd, const std::vector<n
         int dst_elempack = 1;
 
 #if NCNN_AVX2
-        if (elemcount % 8 == 0)
+        if (elemcount % 8 == 0 && ncnn::cpu_support_x86_avx2())
             dst_elempack = 8;
+        else if (elemcount % 4 == 0)
+            dst_elempack = 4;
 #elif NCNN_ARM82
         if (elemcount % 8 == 0 && opt.use_fp16_arithmetic)
             dst_elempack = 8;
@@ -744,13 +774,13 @@ int test_layer_cpu(int typeindex, const ncnn::ParamDict& pd, const std::vector<n
         a4 = a;
     }
 
-    if (opt.use_fp16_storage)
+    if (opt.use_fp16_storage && op->support_fp16_storage)
     {
         ncnn::Mat a_fp16;
         ncnn::cast_float32_to_float16(a4, a_fp16, opt);
         a4 = a_fp16;
     }
-    else if (opt.use_bf16_storage)
+    else if (opt.use_bf16_storage && op->support_bf16_storage)
     {
         ncnn::Mat a_bf16;
         ncnn::cast_float32_to_bfloat16(a4, a_bf16, opt);
@@ -767,13 +797,13 @@ int test_layer_cpu(int typeindex, const ncnn::ParamDict& pd, const std::vector<n
         op->forward(a4, c, opt);
     }
 
-    if (opt.use_fp16_storage)
+    if (opt.use_fp16_storage && op->support_fp16_storage)
     {
         ncnn::Mat c_fp32;
         ncnn::cast_float16_to_float32(c, c_fp32, opt);
         c = c_fp32;
     }
-    else if (opt.use_bf16_storage)
+    else if (opt.use_bf16_storage && op->support_bf16_storage)
     {
         ncnn::Mat c_fp32;
         ncnn::cast_bfloat16_to_float32(c, c_fp32, opt);
@@ -852,14 +882,20 @@ int test_layer_gpu(int typeindex, const ncnn::ParamDict& pd, const std::vector<n
     opt.workspace_vkallocator = blob_vkallocator;
     opt.staging_vkallocator = staging_vkallocator;
 
-    if (!vkdev->info.support_fp16_packed) opt.use_fp16_packed = false;
-    if (!vkdev->info.support_fp16_storage) opt.use_fp16_storage = false;
-    if (!vkdev->info.support_fp16_arithmetic) opt.use_fp16_arithmetic = false;
+    if (!vkdev->info.support_fp16_packed()) opt.use_fp16_packed = false;
+    if (!vkdev->info.support_fp16_storage()) opt.use_fp16_storage = false;
+    if (!vkdev->info.support_fp16_arithmetic()) opt.use_fp16_arithmetic = false;
 
     // FIXME fp16a may produce large error
     opt.use_fp16_arithmetic = false;
 
     op->create_pipeline(opt);
+
+    if (!op->support_vulkan)
+    {
+        delete op;
+        return 233;
+    }
 
     {
         ncnn::VkTransfer cmd(vkdev);
